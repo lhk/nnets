@@ -4,7 +4,9 @@
 # one central idea is to use dictionaries for the
 # derivatives. look at the backward pass of the linear node to get an idea
 
-arr=Array{Float16,2}
+println("starting")
+
+arr=Array{Float64,2}
 
 type Lin
   #parameters
@@ -33,20 +35,19 @@ function backward(layer::Lin, dy::arr)
   layer.W => dy * layer.x',
   layer.b => dy,
   )
-  return W'*y, derivs
+  return W'*dy, derivs
 end
 
 type SoftMaxLoss
-
   #state
   x::arr
   probs::arr
-  labels::Array{Int64,1} # an array of indices, length is batch_size
+  labels::arr # an array of indices, length is batch_size
 
   SoftMaxLoss() = new()
 end
 
-function forward(layer::SoftMaxLoss, x::arr)
+function forward!(layer::SoftMaxLoss, x::arr)
   layer.x=x
   exp_scores=exp(x)
   layer.probs=exp_scores/sum(exp_scores, 1)
@@ -56,11 +57,8 @@ end
 # attention, in most cases this will be the last node
 # here the backward pass actually starts
 # the value for d_y should be just ones
-function backward(layer::SoftMaxLoss, d_y)
-  dscores=layer.probs*d_y
-  dscores[layer.labels, collect(1:1:size(layer.labels)[1])]-=14
-  dscores/=size(layer.x)[2]
-  return dscores, Dict()
+function backward(layer::SoftMaxLoss, dy::arr)
+  return layer.probs - layer.labels, Dict()
 end
 
 #computes a forward pass of a list of layers
@@ -79,7 +77,87 @@ dparams=Dict()
   end
 end
 
-function t()
-  1,2
+
+
+using MNIST
+#using Gadfly
+
+data=trainfeatures(12)
+data=reshape(data, 28,28)
+
+
+xs=[]
+ys=[]
+
+for x=1:28
+  for y=1:28
+    if data[x,y]>50
+      push!(xs,x)
+      push!(ys,y)
+    end
+  end
 end
-println(2)
+
+#creating the network
+
+offset=1
+scale=0.01
+
+W1=abs(randn(100, 784)+offset)*scale
+b1=abs(randn(100,1)+offset)*scale
+
+W2=abs(randn(10,100)+offset)*scale
+b2=abs(randn(10,1)+offset)*scale
+
+fc1=Lin(W1, b1)
+fc2=Lin(W2, b2)
+
+softmax=SoftMaxLoss()
+
+
+epochs=1
+features=1000
+
+alpha=1e-5
+
+for e=1:epochs
+  for f=1:features
+    in_data=trainfeatures(f)
+    in_data=reshape(in_data, 784, 1)
+    in_label=round(Int, trainlabel(f))
+
+    labels=zeros(10,1)
+    labels[in_label+1]=1
+    softmax.labels=labels
+
+    x1=forward!(fc1, in_data)
+    x2=forward!(fc2, x1)
+
+    out=forward!(softmax, x2)
+
+    dy=ones(10,1)
+
+    dict=Dict()
+    dy, temp_dict=backward(softmax, dy)
+    dict=merge(dict, temp_dict)
+
+    dy, temp_dict=backward(fc2, dy)
+    dict=merge(dict, temp_dict)
+
+    dy, temp_dict=backward(fc1, dy)
+    dict=merge(dict, temp_dict)
+
+    fc1.W-=dict(fc1.W)*alpha
+    fc1.b-=dict(fc1.b)*alpha
+    fc2.W-=dict(fc2.W)*alpha
+    fc2.b-=dict(fc2.b)*alpha
+
+    print("finished training for")
+    print(e)
+    print(f)
+    println()
+
+  end
+end
+
+println("finished")
